@@ -92,14 +92,15 @@ class FFNNAgent(object):
                     
                     states.append(s)
                     Q_target.append(all_targets)
-                if i_episode % self.n_episodes_per_print == 0:
-                    print self.net.get_Q(np.matrix(s))[0]
-                    print all_targets
-                    print r
-                    print a
                     
             self.net.gd(x_batch = np.asmatrix(states), Q_batch = np.asmatrix(Q_target))
             
+            if i_episode % self.n_episodes_per_print == 0:
+                print all_targets   
+                print a
+                print r     
+                print self.net.get_Q(np.matrix(s))[0]
+                    
 
     def round_2_tile(self, state):
         return np.round(state, decimals = self.nmr_decimals_tiles)
