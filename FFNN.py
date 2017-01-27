@@ -6,7 +6,7 @@ import numpy as np
 
 class FFNN(object):
     # Array
-    def __init__(self, nmrOfNodes, lr = 0.01, seed = 0, wr = 0.1):
+    def __init__(self, nmrOfNodes, lr = 0, seed = 0, wr = 0.1):
         
         tf.set_random_seed(seed)
         # Initialising params
@@ -14,7 +14,7 @@ class FFNN(object):
         self.nHiddenNodes = nmrOfNodes[1]
         self.nOutputNodes = nmrOfNodes[2]
 
-        self.lr = lr#tf.Variable(lr, name = 'lr')
+        self.lr = tf.Variable(lr, name = 'lr')
         self.seed = seed
         self.wr = wr 
         
@@ -40,36 +40,39 @@ class FFNN(object):
         self.dif = self.Qtar - self.Q
         self.dif = tf.square(self.dif)
         self.mse = tf.reduce_mean(self.dif)
-#       works like mjeeeh
-#        self.optimiser = tf.train.GradientDescentOptimizer(self.lr)
+#        self.optimiser = tf.train.GradientDescentOptimizer(self.lr) works like mjeeeh
 
 #       A new test is made with the AdamOptimizer, which automatically lowers lr
         self.optimiser = tf.train.AdamOptimizer(learning_rate = self.lr)
         self.train = self.optimiser.minimize(self.mse, var_list=self.vars)
         
         self.error_list = []
-    
-    def initSession(self):
-        model = tf.global_variables_initializer()
-        self.session = tf.Session()
-        self.session.run(model)
 
     # 'Run' network and get Q
-    def get_Q(self, obs):
-        return self.session.run(self.Q, feed_dict={self.state: obs})
+    def get_Q(self, sess, obs):
+        return sess.run(self.Q, feed_dict={self.state: obs})
     
-    def set_lr(self, learning_rate):
-        self.lr = learning_rate    
+    def set_lr(self, sess, learning_rate):
+        set_lr_op = self.lr.assign(learning_rate)
+        sess.run(set_lr_op)    
     
     # Make gradient descent
-    def gd(self, x_batch, Q_batch):
-        _, error = self.session.run([self.train, self.dif], feed_dict={self.state: x_batch, self.Qtar: Q_batch})
+    def gd(self, sess, x_batch, Q_batch):
+        _, error = sess.run([self.train, self.dif], feed_dict={self.state: x_batch, self.Qtar: Q_batch})
         self.error_list.append(error)
         
-    def get_params(self):
+#   Set all variables to new values
+    def set_vars(self,sess,new_vars):
+        for idx in range(len(new_vars)):
+            var = self.vars[idx]
+            new_var = new_vars[idx]            
+            assign_op = var.assign(new_var)
+            sess.run(assign_op)
+
+    def get_params(self, sess):
         params = {}
         for p in self.vars:
-            val = self.session.run(p)
+            val = sess.run(p)
             params[p.name] = val
         return params
 
@@ -79,7 +82,6 @@ class FFNN(object):
             print '{}: \n{}\n'.format(name, val)
 
     def plot_error(self):
-        plt.figure(1)
         plt.plot([np.mean(self.error_list[i-50:i]) for i in range(len(self.error_list))])
         
 

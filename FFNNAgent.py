@@ -40,7 +40,13 @@ class FFNNAgent(object):
 
         node_array = [self.n_input_nodes, self.n_hidden_nodes, self.n_output_nodes]        
         self.net = FFNN(node_array, self.learning_rate, self.seed, self.init_net_wr)
-        self.net.initSession()
+#       Creates target network
+        self.target_net = FFNN(node_array, 0, self.seed, self.init_net_wr)
+
+#       Initializes session
+        model = tf.global_variables_initializer()
+        self.session = tf.Session()
+        self.session.run(model)
 
         self.memory = []
         self.reward_list = []
@@ -57,7 +63,7 @@ class FFNNAgent(object):
         memory_len = len(self.memory)
 
         if i_episode % self.target_net_hold_episodes == 0:
-            self.target_net = copy.copy(self.net)
+            self.target_net.set_vars(self.session, self.net.vars)
 
 
         if i_episode % self.net_hold_eps == 0:
@@ -68,11 +74,11 @@ class FFNNAgent(object):
         if i_episode % self.net_hold_lr == 0 and i_episode != 0:
             if self.learning_rate > self.learning_rate_min:
                 self.learning_rate *= self.learning_rate_decay
-                #self.net.set_lr(self.learning_rate)
-                print 'learning_rate:',self.net.lr
+                self.net.set_lr(self.session, self.learning_rate)
+                #print 'learning_rate:',self.net.lr
                         
-        if memory_len == self.max_memory_len:
-            if i_episode < 1:
+        if memory_len > self.batch_size:
+            if i_episode < 20:
                 n_updates = 1 # Don't overtrain on the first (inevitebly bad) episodes 
             else:
                 n_updates = self.n_updates_per_episode
@@ -84,22 +90,28 @@ class FFNNAgent(object):
                 for idx_memory in idx_memory_batch:
                     s, a, r, s_prime, done = self.memory[idx_memory]
                     
-                    all_targets = self.net.get_Q(np.matrix(s))[0]
+                    all_targets = self.net.get_Q(self.session, np.matrix(s))[0]
                     if done:
                         all_targets[a] = r
                     else:
-                        all_targets[a] = r + self.gamma * np.max(self.target_net.get_Q(np.matrix(s_prime)))
+                        all_targets[a] = r + self.gamma * np.max(self.target_net.get_Q(self.session, np.matrix(s_prime)))
                     
                     states.append(s)
                     Q_target.append(all_targets)
-                    
-            self.net.gd(x_batch = np.asmatrix(states), Q_batch = np.asmatrix(Q_target))
+
+            if i_episode % self.n_episodes_per_print == 0:
+                # PRINTS Q
+                print self.net.get_Q(self.session, np.matrix(s))[0]                    
+#                print self.target_net.get_Q(self.session, np.matrix(s))[0]
+#                print ''
+
+            self.net.gd(self.session, x_batch = np.asmatrix(states), Q_batch = np.asmatrix(Q_target))
             
             if i_episode % self.n_episodes_per_print == 0:
-                print all_targets   
-                print a
-                print r     
-                print self.net.get_Q(np.matrix(s))[0]
+            #    print all_targets   
+            #    print a
+            #    print r     
+                print self.net.get_Q(self.session, np.matrix(s))[0]
                     
 
     def round_2_tile(self, state):
@@ -109,7 +121,7 @@ class FFNNAgent(object):
     def take_action(self, env, state):
         r = np.random.uniform()
         if r < 1-self.epsilon:
-            Q = self.net.get_Q(np.matrix(state))[0]
+            Q = self.net.get_Q(self.session, np.matrix(state))[0]
             action = np.argmax(Q)
         else:
             action = env.action_space.sample()
@@ -126,6 +138,8 @@ class FFNNAgent(object):
     def create_episode(self, env, i_episode, rend):
         done = False
         state = env.reset()
+        # Round to tile
+        self.round_2_tile(state)
         # Scale input to same range
         self.scale_input(state)    
         
@@ -137,13 +151,17 @@ class FFNNAgent(object):
                 env.render()            
             action= self.take_action(env, state)
             sars = [state, action]
-            state, r, done, info = env.step(action)
-
+            state, r, done, info = env.step(action) 
+    
+            # Round to tile
+            self.round_2_tile(state)        
             # Scale input to same range
             self.scale_input(state)
             
             sars += [r,state, done]
             sars_tuples.append(tuple(sars))
+#           Tries new thing, optimize after every action
+            self.optimize(sars_tuples, i_episode)
             t += 1
             tot_reward += r
 #            if i_episode % self.n_episodes_per_print == 0:
@@ -157,22 +175,22 @@ class FFNNAgent(object):
     def optimize_episodes(self, env, rend = False):
         t_avg = 0
         r_avg = 0
+        self.reward_list = []
         for i_episode in range(self.n_iter):
             sars_tuples, t, tot_reward = self.create_episode(env, i_episode, rend)
-            self.optimize(sars_tuples, i_episode)
+            #self.optimize(sars_tuples, i_episode)
             t_avg += t
             r_avg += tot_reward
             self.reward_list.append(tot_reward)
-            if i_episode %self.n_episodes_per_print == 0:
+            if i_episode %self.n_episodes_per_print == 0 and i_episode != 0:
                 print 'Episode Length:',t+1
                 print 'Total reward:', tot_reward
                 print i_episode
 
-        print 'Average Length :',t_avg/float(self.n_iter)
-        print 'Average Reward :',r_avg/float(self.n_iter)
+        self.r_avg_tot = r_avg/float(self.n_iter)
+        print 'Average Length :', t_avg/float(self.n_iter)
+        print 'Average Reward :', self.r_avg_tot
 
     def plot_reward(self):
         plt.figure(2)
         plt.plot([np.mean(self.reward_list[i-50:i]) for i in range(len(self.reward_list))])
-
-
